@@ -167,7 +167,7 @@ jobs:
         mkdir -p host-wheel && mv panda3d-*.whl host-wheel/
 
     - name: Install the host Panda3D and packaging tools
-      run: python -m pip install setuptools wheel host-wheel/*.whl
+      run: python -m pip install setuptools wheel protobuf host-wheel/*.whl
 
     - uses: actions/download-artifact@v4
       with:
