@@ -1,0 +1,99 @@
+# Builds Panda3D for 64-bit ARM Android (arm64-v8a) as a wheel that Panda's build_apps can package into an app.
+# Based on the android job in upstream's ci.yml, with a release build (optimize 4) and the wheel kept as an artifact.
+name: Android wheel
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  android-arm64:
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 29.0.14206865
+      PY_VERSION: 3.13.9
+      TRIPLE: aarch64-linux-android
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: 'tools platform-tools platforms;android-21 ndk;29.0.14206865'
+
+    - name: Set up Android NDK
+      run: echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> $GITHUB_ENV
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Restore Python build cache
+      id: py-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/python-prefix
+        key: android-python-3.13.9-arm64-v8a-ndk29.0.14206865
+
+    - name: Build Python for Android
+      if: steps.py-cache.outputs.cache-hit != 'true'
+      run: |
+        wget -q https://www.python.org/ftp/python/$PY_VERSION/Python-$PY_VERSION.tar.xz
+        tar -xJf Python-$PY_VERSION.tar.xz
+        sed -i.bak "s/ndk_version=[0-9.]\{1,\}/ndk_version=$NDK_VERSION/" Python-$PY_VERSION/Android/android-env.sh
+        (cd Python-$PY_VERSION/Android && python3 android.py build $TRIPLE)
+        cp -R Python-$PY_VERSION/cross-build/$TRIPLE/prefix ~/python-prefix
+        rm -rf Python-$PY_VERSION
+
+    - name: Restore thirdparty build cache
+      id: tp-cache
+      uses: actions/cache@v4
+      with:
+        path: ./thirdparty
+        key: android-thirdparty-935c80380ca171e08587c570e9dad678d29db3c8-arm64-v8a-ndk29.0.14206865
+
+    - name: Build thirdparty packages
+      if: steps.tp-cache.outputs.cache-hit != 'true'
+      run: |
+        sudo apt-get install -y yasm
+        git clone --revision=935c80380ca171e08587c570e9dad678d29db3c8 --depth=1 https://github.com/rdb/panda3d-thirdparty.git thirdparty
+        cd thirdparty
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake \
+          -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a \
+          -DCMAKE_ANDROID_ARCH=arm64 \
+          -DCMAKE_SYSTEM_VERSION=21 \
+          -DANDROID_ABI=arm64-v8a \
+          -DANDROID_PLATFORM=android-21 \
+          -DBUILD_FCOLLADA=OFF \
+          -DBUILD_OPENSSL=OFF \
+          -DBUILD_VRPN=OFF \
+          -DBUILD_ARTOOLKIT=OFF
+        cmake --build build --config Release -j4
+        rm -rf build
+
+    - name: Put the Android Python where the wheel builder looks for it
+      run: |
+        ls thirdparty
+        mkdir -p thirdparty/android-libs-arm64
+        rm -rf thirdparty/android-libs-arm64/python
+        cp -R ~/python-prefix thirdparty/android-libs-arm64/python
+        ls thirdparty/android-libs-arm64/python/lib | head -30
+
+    - name: Build Panda3D for Android (release build) and make the wheel
+      run: |
+        python makepanda/makepanda.py --git-commit=${{ github.sha }} --target android-21 \
+          --python-incdir=$HOME/python-prefix/include --python-libdir=$HOME/python-prefix/lib \
+          --arch arm64 --everything --no-openssl --no-tinydisplay --no-pandatool \
+          --optimize 4 --wheel --verbose --threads=4
+
+    - name: Pack the Android Python runtime too
+      run: tar -czf android-python-prefix-arm64.tar.gz -C $HOME python-prefix
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: panda3d-android-arm64
+        path: |
+          *.whl
+          android-python-prefix-arm64.tar.gz
+        if-no-files-found: error
