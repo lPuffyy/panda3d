@@ -16,9 +16,9 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
+      uses: android-actions/setup-android@v4
       with:
-        packages: 'tools platform-tools platforms;android-21 ndk;29.0.14206865'
+        packages: 'platform-tools platforms;android-21 ndk;29.0.14206865'
 
     - name: Set up Android NDK
       run: echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> $GITHUB_ENV
@@ -96,4 +96,71 @@ jobs:
         path: |
           *.whl
           android-python-prefix-arm64.tar.gz
+        if-no-files-found: error
+
+  # Packages android-app/ into an Android app with Panda's build_apps, using the wheel built above.
+  app:
+    needs: android-arm64
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '21'
+
+    - name: Restore host Panda cache
+      id: host-cache
+      uses: actions/cache@v4
+      with:
+        path: host-wheel
+        key: host-panda-linux-py313-${{ hashFiles('dtool/PandaVersion.txt', 'makepanda/makepanda.py') }}-v1
+
+    - name: Build a small Linux Panda3D for the packaging tools
+      if: steps.host-cache.outputs.cache-hit != 'true'
+      run: |
+        python makepanda/makepanda.py --outputdir=built-host --nothing --use-python --use-direct --use-zlib --use-png \
+          --use-deploytools --use-egg --python-incdir="$pythonLocation/include" --python-libdir="$pythonLocation/lib" \
+          --wheel --threads=4
+        mkdir -p host-wheel && mv panda3d-*.whl host-wheel/
+
+    - name: Install the host Panda3D
+      run: python -m pip install host-wheel/*.whl
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: panda3d-android-arm64
+        path: android-wheels
+
+    - name: Build the app bundle
+      working-directory: android-app
+      run: |
+        ls ../android-wheels
+        printf -- "--find-links ../android-wheels\npanda3d\n" > requirements.txt
+        python setup.py bdist_apps
+        ls -la dist
+
+    - name: Turn the bundle into an installable APK
+      working-directory: android-app
+      run: |
+        wget -q https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar -O bundletool.jar
+        keytool -genkeypair -keystore test.keystore -alias test -storepass testtest -keypass testtest -keyalg RSA -keysize 2048 \
+          -validity 10000 -dname "CN=Toontown Anywhere Test"
+        java -jar bundletool.jar build-apks --bundle=$(ls dist/*.aab | head -1) --output=app.apks --mode=universal \
+          --ks=test.keystore --ks-key-alias=test --ks-pass=pass:testtest --key-pass=pass:testtest
+        unzip -o app.apks universal.apk
+        mv universal.apk ttatest.apk
+        ls -la ttatest.apk
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: ttatest-apk
+        path: |
+          android-app/ttatest.apk
+          android-app/dist/*.aab
         if-no-files-found: error
