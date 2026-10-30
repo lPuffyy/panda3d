@@ -188,7 +188,7 @@ jobs:
         wget -q https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar -O bundletool.jar
         keytool -genkeypair -keystore test.keystore -alias test -storepass testtest -keypass testtest -keyalg RSA -keysize 2048 \
           -validity 10000 -dname "CN=Toontown Anywhere Test"
-        java -jar bundletool.jar build-apks --bundle=$(ls dist/*.aab | head -1) --output=app.apks --mode=universal \
+        java -jar bundletool.jar build-apks --bundle="$(ls dist/*.aab | head -1)" --output=app.apks --mode=universal \
           --ks=test.keystore --ks-key-alias=test --ks-pass=pass:testtest --key-pass=pass:testtest
         unzip -o app.apks universal.apk
         mv universal.apk ttatest.apk

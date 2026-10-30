@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(
-    name="TTA Panda Test",
+    name="ttatest",
     version="0.1.0",
     options={
         "build_apps": {
