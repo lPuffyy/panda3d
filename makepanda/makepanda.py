@@ -2118,7 +2118,8 @@ def CompileJava(target, src, opts):
 
     optlevel = GetOptimizeOption(opts)
     if optlevel >= 4:
-        cmd += "-debug:none "
+        # ecj (on Android) spells it -debug:none; the JDK's javac only knows -g:none
+        cmd += "-debug:none " if GetHost() == 'android' else "-g:none "
 
     classpath = BracketNameWithQuotes(SDK["ANDROID_JAR"] + ":" + GetOutputDir() + "/classes")
     cmd += "-cp " + classpath + " "
